@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime, timedelta
 
 st.set_page_config(page_title="IROS Operating System", layout="wide")
 
-# Load data from the repository CSV files
 @st.cache_data(ttl=0)
 def load_data():
     workload_df = pd.read_csv("Master_Workload.csv")
@@ -11,6 +11,29 @@ def load_data():
         note_df = pd.read_csv("Note_Report_Master.csv")
     except:
         note_df = pd.DataFrame()
+
+    # Function to calculate specific WT deadline windows based on IROS policy
+    def calculate_deadline(row):
+        w_type = str(row.get("Work Type", "")).upper()
+        
+        # 1. WT1 Annual ISP: 14 Days Pre-Due Window
+        if "WT1" in w_type or "ANNUAL" in w_type:
+            return "14-Day Pre-Due Window (Prior to ISP End Date)"
+        
+        # 2. WT2 Quarterly Review: 1-10 Day Post-Quarter Window
+        elif "WT2" in w_type or "QUARTERLY" in w_type:
+            return "1–10 Day Window (Post Quarter End)"
+        
+        # 3. Note Reports (WT5/WT6): Friday @ 5:00 PM
+        elif "WT5" in w_type or "WT6" in w_type or "NOTE" in w_type:
+            return "Friday @ 5:00 PM (Weekly Hard Deadline)"
+        
+        else:
+            return "Standard Operational Schedule"
+
+    if "Work Type" in workload_df.columns:
+        workload_df["Compliance Deadline Window"] = workload_df.apply(calculate_deadline, axis=1)
+
     return workload_df, note_df
 
 try:
@@ -29,7 +52,7 @@ if "Unassigned" in staff_list:
 selected_staff = st.sidebar.selectbox("Select Active Staff Account:", staff_list)
 
 # Filter tasks for selected staff
-user_tasks = workload_df[workload_df["Assigned Staff"] == selected_staff]
+user_tasks = workload_df[workload_df["Assigned Staff"] == selected_staff].copy()
 
 # Header Metrics
 st.title("Inspired Resolutions Operating System (IROS)")
@@ -52,7 +75,7 @@ tab1, tab2 = st.tabs(["📋 My Task Queue", "📑 Weekly Provider Note Reports"]
 with tab1:
     st.subheader(f"Active Task Queue for {selected_staff}")
     if len(user_tasks) > 0:
-        display_cols = [c for c in ["Work Type", "Person's Full Name", "Provider", "Service", "Unit Value (WU)", "Week Number", "Work Status", "Barrier / Note"] if c in user_tasks.columns]
+        display_cols = [c for c in ["Work Type", "Compliance Deadline Window", "Person's Full Name", "Provider", "Service", "Unit Value (WU)", "Week Number", "Work Status", "Barrier / Note"] if c in user_tasks.columns]
         st.dataframe(user_tasks[display_cols], use_container_width=True)
     else:
         st.info("No active tasks assigned.")
