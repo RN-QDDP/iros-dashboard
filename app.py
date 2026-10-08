@@ -1,70 +1,69 @@
 import streamlit as st
 import pandas as pd
 
-# PAGE CONFIGURATION
-st.set_page_config(
-    page_title="IROS — Workload & Production Dashboard",
-    page_icon="⚡",
-    layout="wide"
-)
+st.set_page_config(page_title="IROS Operating System", layout="wide")
 
-# MASTER DATA LOADERS
-@st.cache_data
-def load_staff_roster():
-    return pd.DataFrame([
-        {"Name": "Rebecca Neill", "Role": "Executive Director / Owner", "Office": "Chesapeake", "Target_WU": 0},
-        {"Name": "Cara Neill", "Role": "Administrative Director / Owner", "Office": "Newport News", "Target_WU": 0},
-        {"Name": "Latoya Smith", "Role": "Clinical Director / QDDP Lead", "Office": "Chesapeake", "Target_WU": 20},
-        {"Name": "Stephanie Eatton-Johnson", "Role": "Clinical Director / QDDP Lead", "Office": "Newport News", "Target_WU": 20},
-        {"Name": "Ayaat Albayati", "Role": "Clinical Operations Director", "Office": "Chesapeake", "Target_WU": 30},
-        {"Name": "Ashley Shilo", "Role": "Developmental Disability Associate (DDA)", "Office": "Chesapeake", "Target_WU": 30},
-        {"Name": "Ondrea Wilson", "Role": "Developmental Disability Associate (DDA)", "Office": "Newport News", "Target_WU": 30},
-        {"Name": "Shalette Shaw", "Role": "Developmental Disability Support 2 (DDS2)", "Office": "Chesapeake", "Target_WU": 30},
-        {"Name": "Kristin Williams", "Role": "Developmental Disability Support 2 (DDS2)", "Office": "Chesapeake", "Target_WU": 40},
-        {"Name": "Mohammad Qasim", "Role": "Developmental Disability Support 1 (DDS1)", "Office": "Newport News", "Target_WU": 40},
-        {"Name": "Denna Smith", "Role": "Business Support Specialist", "Office": "Newport News", "Target_WU": 40},
-        {"Name": "Jerry Burton", "Role": "Audit Support Specialist", "Office": "Chesapeake", "Target_WU": 10},
-        {"Name": "Terri Thomasson", "Role": "Audit Support Specialist", "Office": "Newport News", "Target_WU": 10}
-    ])
+# Load data from the repository CSV files
+@st.cache_data(ttl=0)
+def load_data():
+    workload_df = pd.read_csv("Master_Workload.csv")
+    try:
+        note_df = pd.read_csv("Note_Report_Master.csv")
+    except:
+        note_df = pd.DataFrame()
+    return workload_df, note_df
 
+try:
+    workload_df, note_df = load_data()
+except Exception as e:
+    st.error(f"Error loading CSV files: {e}")
+    st.stop()
+
+# Sidebar Staff Selection
 st.sidebar.title("⚡ IROS Operating System")
-staff_df = load_staff_roster()
-selected_staff_name = st.sidebar.selectbox("Select Active Staff Account:", staff_df['Name'].tolist(), index=5)
-current_user = staff_df[staff_df['Name'] == selected_staff_name].iloc[0]
+staff_list = sorted(list(workload_df["Assigned Staff"].dropna().unique()))
 
-st.sidebar.success(f"Logged in as: **{current_user['Name']}**")
+if "Unassigned" in staff_list:
+    staff_list.remove("Unassigned")
 
+selected_staff = st.sidebar.selectbox("Select Active Staff Account:", staff_list)
+
+# Filter tasks for selected staff
+user_tasks = workload_df[workload_df["Assigned Staff"] == selected_staff]
+
+# Header Metrics
 st.title("Inspired Resolutions Operating System (IROS)")
-st.subheader(f"Welcome back, {current_user['Name']}!")
+st.subheader(f"Welcome back, {selected_staff}!")
 
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Weekly Target", f"{current_user['Target_WU']}.0 WU")
-col2.metric("Scheduled Capacity", f"{min(current_user['Target_WU'], 30)}.0 WU")
-col3.metric("Protected Buffer", f"{max(0, current_user['Target_WU'] - 30)}.0 WU")
+total_wu = user_tasks["Unit Value (WU)"].sum() if "Unit Value (WU)" in user_tasks.columns else 0.0
+task_count = len(user_tasks)
+
+col1.metric("Total Assigned Tasks", f"{task_count} Tasks")
+col2.metric("Scheduled Load", f"{total_wu:.1f} WU")
+col3.metric("Protected Buffer", "0.0 WU")
 col4.metric("Domain Status", "Verified BAA ✅")
 
 st.markdown("---")
 
-tab1, tab2, tab3 = st.tabs(["📋 My Task Queue", "🔍 WT13 Clinical QA Queue", "💼 WT19 Medicaid Billing Queue"])
+# Navigation Tabs
+tab1, tab2 = st.tabs(["📋 My Task Queue", "📑 Weekly Provider Note Reports"])
 
 with tab1:
-    st.markdown(f"### Active Task Queue for **{current_user['Name']}**")
-    tasks_data = [
-        {"Task ID": "TSK-1001", "Provider Agency": "HOUSE OF ANGELS", "Individual": "Asia Marsh", "Work Type": "WT1 — Annual ISP", "WU Weight": 3.0, "Deadline": "2026-10-12", "Status": "In Progress"},
-        {"Task ID": "TSK-1002", "Provider Agency": "HOUSE OF ANGELS", "Individual": "Charlie Rollins", "Work Type": "WT2 — Quarterly Review", "WU Weight": 1.5, "Deadline": "2026-10-15", "Status": "Ready for Review"}
-    ]
-    st.dataframe(pd.DataFrame(tasks_data), use_container_width=True)
+    st.subheader(f"Active Task Queue for {selected_staff}")
+    if len(user_tasks) > 0:
+        display_cols = [c for c in ["Work Type", "Person's Full Name", "Provider", "Service", "Unit Value (WU)", "Week Number", "Work Status", "Barrier / Note"] if c in user_tasks.columns]
+        st.dataframe(user_tasks[display_cols], use_container_width=True)
+    else:
+        st.info("No active tasks assigned.")
 
 with tab2:
-    st.markdown("### WT13 — Clinical Quality Assurance Review Queue")
-    qa_data = [
-        {"Task ID": "TSK-1002", "Staff Writer": "Ashley Shilo", "Provider": "HOUSE OF ANGELS", "Deliverable": "Quarterly Review — Charlie Rollins", "Submitted Date": "2026-10-05"}
-    ]
-    st.table(pd.DataFrame(qa_data))
-
-with tab3:
-    st.markdown("### WT19 — Medicaid Billing Reconciliation Queue")
-    billing_data = [
-        {"Task ID": "TSK-1003", "Individual": "Ahmad Wallace", "Provider": "EXTRAORDINARY CHANGES", "Service Auth #": "SA-998412", "Billing Specialist": "Denna Smith"}
-    ]
-    st.table(pd.DataFrame(billing_data))
+    st.subheader(f"Note Report Intake Queue for {selected_staff}")
+    if not note_df.empty and "Assigned Staff" in note_df.columns:
+        user_notes = note_df[note_df["Assigned Staff"] == selected_staff]
+        if len(user_notes) > 0:
+            st.dataframe(user_notes, use_container_width=True)
+        else:
+            st.info("No provider note reports assigned to this account.")
+    else:
+        st.info("Note Report Master data loaded.")
