@@ -15,16 +15,16 @@ def load_data():
     except:
         note_df = pd.DataFrame()
 
-    def calculate_exact_deadline(row):
+    def get_sortable_date(row):
         w_type = str(row.get("Work Type", "")).strip().upper()
         week_num = row.get("Week Number", None)
         
-        # Helper: Calculate Friday of assigned week number
-        friday_str = None
+        # Calculate Friday of assigned week number starting from Nov 1, 2026
         if pd.notnull(week_num) and str(week_num).isdigit():
             w_int = int(week_num)
             target_friday = LAUNCH_DATE + timedelta(weeks=w_int - 1, days=5)
-            friday_str = target_friday.strftime("%m/%d/%Y")
+        else:
+            target_friday = LAUNCH_DATE + timedelta(days=5)
 
         # Parse base date (ISP End Date or Quarter End Date)
         base_date_str = row.get("ISP End Date") or row.get("Quarter End Date") or row.get("Target Date")
@@ -37,102 +37,38 @@ def load_data():
                 except ValueError:
                     pass
 
-        # WT1 — Annual ISP (14 days pre-due window prior to ISP End Date)
+        # WT1 — Annual ISP: Due 14 Days Pre-Due Window prior to ISP End Date
         if "WT1" in w_type or "ANNUAL" in w_type:
             if parsed_base:
-                due = parsed_base - timedelta(days=14)
-                return f"Due: {due.strftime('%m/%d/%Y')} (14 Days Pre-Due)"
-            elif friday_str:
-                return f"Due: {friday_str} (Target Week)"
-            return "14 Days Prior to ISP End Date"
+                due_date = parsed_base - timedelta(days=14)
+            else:
+                due_date = target_friday
+            display_str = f"Due: {due_date.strftime('%m/%d/%Y')} (WT1 - Annual ISP)"
 
-        # WT2 — Quarterly Review (1-10 Days Post Quarter End)
+        # WT2 — Quarterly Review: 1-10 Day Window Post Quarter End
         elif "WT2" in w_type or "QUARTERLY" in w_type:
             if parsed_base:
                 start_w = parsed_base + timedelta(days=1)
+                due_date = start_w
                 end_w = parsed_base + timedelta(days=10)
-                return f"Window: {start_w.strftime('%m/%d/%Y')} – {end_w.strftime('%m/%d/%Y')}"
-            elif friday_str:
-                return f"Due: {friday_str} (1–10 Day Post-Quarter Window)"
-            return "1–10 Days Post Quarter End"
+                display_str = f"Window: {start_w.strftime('%m/%d/%Y')} – {end_w.strftime('%m/%d/%Y')}"
+            else:
+                due_date = target_friday
+                display_str = f"Due: {due_date.strftime('%m/%d/%Y')} (WT2 - Quarterly)"
 
-        # WT3 — Intake
-        elif "WT3" in w_type or "INTAKE" in w_type:
-            return "Within 5 Business Days of Trigger"
-
-        # WT4 — Discharge
-        elif "WT4" in w_type or "DISCHARGE" in w_type:
-            return "Within 10 Business Days of Discontinuation"
-
-        # WT5 / WT6 — Weekly Note Reports (Hard deadline Friday @ 5:00 PM)
+        # WT5 / WT6 — Note Reports: Friday @ 5:00 PM
         elif any(k in w_type for k in ["WT5", "WT6", "NOTE"]):
-            if friday_str:
-                return f"Due: {friday_str} @ 5:00 PM"
-            return "Friday @ 5:00 PM Weekly"
-
-        # WT7 — Documentation Corrections
-        elif "WT7" in w_type or "CORRECTION" in w_type:
-            return "Within 48 Hours of QA Return"
-
-        # WT8 — Pended ISP / WaMS Pend
-        elif "WT8" in w_type or "PEND" in w_type:
-            return "High-Priority (Within 24–48 Hours)"
-
-        # WT9 — VAMMIS Approval Monitoring
-        elif "WT9" in w_type or "VAMMIS" in w_type:
-            return "Submit Day -30 prior to Auth End"
-
-        # WT10 — Partial Plan-Year Resubmission
-        elif "WT10" in w_type or "PARTIAL" in w_type:
-            return "Actionable Day -45; Submit Day -30"
-
-        # WT11 — Clinical Barrier Management
-        elif "WT11" in w_type or "BARRIER" in w_type:
-            return "Active Resolution within 3 Days"
-
-        # WT12 — Signatures
-        elif "WT12" in w_type or "SIGNATURE" in w_type:
-            return "Within 5 Business Days"
-
-        # WT13 — Clinical QA / Final Review
-        elif "WT13" in w_type or "QA" in w_type:
-            return "Within 48 Hours in QA Queue"
-
-        # WT14 — Provider Follow-Up
-        elif "WT14" in w_type or "FOLLOW-UP" in w_type:
-            return "Within 3 Business Days"
-
-        # WT15 — Clinical Compliance / Escalation
-        elif "WT15" in w_type or "ESCALAT" in w_type:
-            return "Leadership Action within 24 Hours"
-
-        # WT16 — Meetings
-        elif "WT16" in w_type or "MEETING" in w_type:
-            return "Scheduled Calendar Event Time"
-
-        # WT17 — Daily Email / Calendar Review
-        elif "WT17" in w_type or "EMAIL" in w_type:
-            return "Daily by 5:00 PM COB"
-
-        # WT18 — Communication
-        elif "WT18" in w_type or "CALL" in w_type or "TEXT" in w_type:
-            return "Same-Day / Within 24 Hours"
-
-        # WT19 — Medicaid Billing Support
-        elif "WT19" in w_type or "BILLING" in w_type:
-            return "Weekly Billing Cycle (Fridays)"
-
-        # WT20 — Provider EHR Entry
-        elif "WT20" in w_type or "EHR" in w_type:
-            return "Within 3 Business Days of Approval"
+            due_date = target_friday
+            display_str = f"Due: {due_date.strftime('%m/%d/%Y')} @ 5:00 PM"
 
         else:
-            if friday_str:
-                return f"Due: {friday_str}"
-            return "Standard Operational Schedule"
+            due_date = target_friday
+            display_str = f"Due: {due_date.strftime('%m/%d/%Y')}"
+
+        return pd.Series([due_date, display_str])
 
     if "Work Type" in workload_df.columns:
-        workload_df["Controlling Due Date"] = workload_df.apply(calculate_exact_deadline, axis=1)
+        workload_df[["_sort_date", "Controlling Due Date"]] = workload_df.apply(get_sortable_date, axis=1)
 
     return workload_df, note_df
 
@@ -154,6 +90,10 @@ selected_staff = st.sidebar.selectbox("Select Active Staff Account:", staff_list
 # Filter tasks for selected staff
 user_tasks = workload_df[workload_df["Assigned Staff"] == selected_staff].copy()
 
+# STRICT CHRONOLOGICAL SORTING (Earliest November 2026 dates at the very top)
+if "_sort_date" in user_tasks.columns:
+    user_tasks = user_tasks.sort_values(by="_sort_date", ascending=True)
+
 # Header Metrics
 st.title("Inspired Resolutions Operating System (IROS)")
 st.subheader(f"Welcome back, {selected_staff}!")
@@ -162,18 +102,22 @@ col1, col2, col3, col4 = st.columns(4)
 total_wu = user_tasks["Unit Value (WU)"].sum() if "Unit Value (WU)" in user_tasks.columns else 0.0
 task_count = len(user_tasks)
 
+# November 2026 Immediate Focus Metrics
+nov_tasks = user_tasks[(user_tasks["_sort_date"] >= datetime(2026, 11, 1)) & (user_tasks["_sort_date"] <= datetime(2026, 11, 30))]
+nov_count = len(nov_tasks)
+
 col1.metric("Total Assigned Tasks", f"{task_count} Tasks")
-col2.metric("Scheduled Load", f"{total_wu:.1f} WU")
-col3.metric("Protected Buffer", "0.0 WU")
+col2.metric("Nov 2026 Immediate Tasks", f"{nov_count} Due in Nov")
+col3.metric("Scheduled Load", f"{total_wu:.1f} WU")
 col4.metric("Domain Status", "Verified BAA ✅")
 
 st.markdown("---")
 
 # Navigation Tabs
-tab1, tab2 = st.tabs(["📋 My Task Queue", "📑 Weekly Provider Note Reports"])
+tab1, tab2 = st.tabs(["📋 My Task Queue (Nov 2026 Testing Focus)", "📑 Weekly Provider Note Reports"])
 
 with tab1:
-    st.subheader(f"Active Task Queue for {selected_staff}")
+    st.subheader(f"Active Task Queue for {selected_staff} (Sorted by Due Date)")
     if len(user_tasks) > 0:
         display_cols = [c for c in ["Controlling Due Date", "Work Type", "Person's Full Name", "Provider", "Service", "Unit Value (WU)", "Week Number", "Work Status", "Barrier / Note"] if c in user_tasks.columns]
         st.dataframe(user_tasks[display_cols], use_container_width=True)
