@@ -26,7 +26,6 @@ def load_data():
         else:
             target_friday = LAUNCH_DATE + timedelta(days=5)
 
-        # Parse base date (ISP End Date or Quarter End Date)
         base_date_str = row.get("ISP End Date") or row.get("Quarter End Date") or row.get("Target Date")
         parsed_base = None
         if pd.notnull(base_date_str):
@@ -37,26 +36,22 @@ def load_data():
                 except ValueError:
                     pass
 
-        # WT1 — Annual ISP: Due 14 Days Pre-Due Window prior to ISP End Date
+        # WT1 — Annual ISP
         if "WT1" in w_type or "ANNUAL" in w_type:
-            if parsed_base:
-                due_date = parsed_base - timedelta(days=14)
-            else:
-                due_date = target_friday
+            due_date = parsed_base - timedelta(days=14) if parsed_base else target_friday
             display_str = f"Due: {due_date.strftime('%m/%d/%Y')} (WT1 - Annual ISP)"
 
-        # WT2 — Quarterly Review: 1-10 Day Window Post Quarter End
+        # WT2 — Quarterly Review
         elif "WT2" in w_type or "QUARTERLY" in w_type:
             if parsed_base:
-                start_w = parsed_base + timedelta(days=1)
-                due_date = start_w
+                due_date = parsed_base + timedelta(days=1)
                 end_w = parsed_base + timedelta(days=10)
-                display_str = f"Window: {start_w.strftime('%m/%d/%Y')} – {end_w.strftime('%m/%d/%Y')}"
+                display_str = f"Window: {due_date.strftime('%m/%d/%Y')} – {end_w.strftime('%m/%d/%Y')}"
             else:
                 due_date = target_friday
                 display_str = f"Due: {due_date.strftime('%m/%d/%Y')} (WT2 - Quarterly)"
 
-        # WT5 / WT6 — Note Reports: Friday @ 5:00 PM
+        # WT5 / WT6 — Note Reports
         elif any(k in w_type for k in ["WT5", "WT6", "NOTE"]):
             due_date = target_friday
             display_str = f"Due: {due_date.strftime('%m/%d/%Y')} @ 5:00 PM"
@@ -90,7 +85,7 @@ selected_staff = st.sidebar.selectbox("Select Active Staff Account:", staff_list
 # Filter tasks for selected staff
 user_tasks = workload_df[workload_df["Assigned Staff"] == selected_staff].copy()
 
-# STRICT CHRONOLOGICAL SORTING (Earliest November 2026 dates at the very top)
+# Sort chronologically
 if "_sort_date" in user_tasks.columns:
     user_tasks = user_tasks.sort_values(by="_sort_date", ascending=True)
 
@@ -104,25 +99,39 @@ task_count = len(user_tasks)
 
 # November 2026 Immediate Focus Metrics
 nov_tasks = user_tasks[(user_tasks["_sort_date"] >= datetime(2026, 11, 1)) & (user_tasks["_sort_date"] <= datetime(2026, 11, 30))]
-nov_count = len(nov_tasks)
 
 col1.metric("Total Assigned Tasks", f"{task_count} Tasks")
-col2.metric("Nov 2026 Immediate Tasks", f"{nov_count} Due in Nov")
+col2.metric("November 2026 Focus", f"{len(nov_tasks)} Tasks")
 col3.metric("Scheduled Load", f"{total_wu:.1f} WU")
 col4.metric("Domain Status", "Verified BAA ✅")
 
 st.markdown("---")
 
 # Navigation Tabs
-tab1, tab2 = st.tabs(["📋 My Task Queue (Nov 2026 Testing Focus)", "📑 Weekly Provider Note Reports"])
+tab1, tab2 = st.tabs(["📋 My Task Queue", "📑 Weekly Provider Note Reports"])
 
 with tab1:
-    st.subheader(f"Active Task Queue for {selected_staff} (Sorted by Due Date)")
-    if len(user_tasks) > 0:
-        display_cols = [c for c in ["Controlling Due Date", "Work Type", "Person's Full Name", "Provider", "Service", "Unit Value (WU)", "Week Number", "Work Status", "Barrier / Note"] if c in user_tasks.columns]
-        st.dataframe(user_tasks[display_cols], use_container_width=True)
+    st.subheader(f"Active Task Queue for {selected_staff}")
+    
+    # STEP 1: View Filter Toggles
+    view_filter = st.radio(
+        "Select Timeframe View:",
+        ["📅 Week 1 (Nov 1 – Nov 7, 2026)", "🗓️ Month of November 2026", "📆 Full 52-Week Year"],
+        horizontal=True
+    )
+    
+    filtered_tasks = user_tasks.copy()
+    if view_filter == "📅 Week 1 (Nov 1 – Nov 7, 2026)":
+        filtered_tasks = user_tasks[(user_tasks["_sort_date"] >= datetime(2026, 11, 1)) & (user_tasks["_sort_date"] <= datetime(2026, 11, 7))]
+    elif view_filter == "🗓️ Month of November 2026":
+        filtered_tasks = user_tasks[(user_tasks["_sort_date"] >= datetime(2026, 11, 1)) & (user_tasks["_sort_date"] <= datetime(2026, 11, 30))]
+
+    if len(filtered_tasks) > 0:
+        display_cols = [c for c in ["Controlling Due Date", "Work Type", "Person's Full Name", "Provider", "Service", "Unit Value (WU)", "Week Number", "Work Status", "Barrier / Note"] if c in filtered_tasks.columns]
+        st.dataframe(filtered_tasks[display_cols], use_container_width=True)
+        st.caption(f"Showing {len(filtered_tasks)} task(s) for this selected view.")
     else:
-        st.info("No active tasks assigned.")
+        st.info("No active tasks due in this selected timeframe view.")
 
 with tab2:
     st.subheader(f"Note Report Intake Queue for {selected_staff}")
